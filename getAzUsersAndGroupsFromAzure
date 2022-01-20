@@ -1,0 +1,70 @@
+<#
+.SYNOPSIS
+Getting all users and groups from AAD 
+
+.NOTES
+Version: 1.0
+Creation Date: 2022/01/20
+
+.DESCRIPTION
+Getting all users and groups from AAD 
+#>
+
+#Statics vars
+$date = Get-Date -Format "dd-MM-yyyy"
+$pathForLogs = "$($env:USERPROFILE)\$date getAzUsersAndGroupsFromAzure - script log.txt"
+$pathForExportingData = "$($env:USERPROFILE)\$date getAzUsersAndGroupsFromAzure - Users and Groups from Azure AD.csv"
+
+function getUserMembership ($objectId) {
+    $getUserMembership = Get-AzureADUserMembership -ObjectId $objectId
+    $tempArray = @()
+    foreach ($userMembership in $getUserMembership) {
+        $tempArray += ([PSCustomObject]@{group = $userMembership.DisplayName;description = $userMembership.Description}) -join ','
+    } 
+    return ,$tempArray;
+}
+function getCreationDate ($objectId) {
+    $userExtension = Get-AzureADUserExtension -ObjectId $objectId
+    $createdDateTime = $userExtension["createdDateTime"]
+
+    return ,$createdDateTime;
+}
+function makingTheExportFile ($userObject) {
+    $tempObj = New-Object psobject
+    $tempObj | Add-Member -NotePropertyName DisplayName $userObject.DisplayName
+    $tempObj | Add-Member -NotePropertyName UserPrincipalName $userObject.UserPrincipalName
+    $tempObj | Add-Member -NotePropertyName AccountEnabled $userObject.AccountEnabled
+    $tempObj | Add-Member -NotePropertyName UserType $userObject.UserType
+    $tempObj | Add-Member -NotePropertyName UserState $userObject.UserState
+    $tempObj | Add-Member -NotePropertyName DirSyncEnabled $userObject.DirSyncEnabled
+    $tempObj | Add-Member -NotePropertyName LastDirSyncTime $userObject.LastDirSyncTime
+    $tempObj | Add-Member -NotePropertyName CreationType $userObject.CreationType
+    $tempObj | Add-Member -NotePropertyName ObjectType $userObject.ObjectType
+    $tempObj | Add-Member -NotePropertyName ObjectId $userObject.ObjectId
+    $createdDate = getCreationDate ($userObject.ObjectId)
+    $tempObj | Add-Member -NotePropertyName Created $createdDate
+    $userMembership = getUserMembership -objectId $userObject.ObjectId
+    $tempObj | Add-Member -NotePropertyName UserMembership (($userMembership) -join ',')
+
+    return,$tempObj;
+}
+
+Start-Transcript -Path $pathForLogs
+try {
+    Connect-AzureAD
+    $getUsers = Get-AzureADUser -All $true
+    if($getUsers){
+        $tempObjForExportingData = @()
+        foreach ($user in $getUsers) {
+            $tempObjForTheFunction = makingTheExportFile -userObject $user
+            $tempObjForExportingData += $tempObjForTheFunction
+        }
+    $tempObjForExportingData | Export-Csv -Path $pathForExportingData -NoTypeInformation -Delimiter ";"
+    } else {
+        Write-Host "no users"
+    }
+}
+catch {
+    Write-Host "$($_.Exception.Message)" -BackgroundColor DarkRed
+}
+Stop-Transcript
